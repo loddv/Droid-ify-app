@@ -38,7 +38,7 @@ android {
             )
         }
         debug {
-            applicationIdSuffix = ".debug"
+            applicationIdSuffix = if (providers.gradleProperty("devBuild").isPresent) ".dev" else ".debug"
             versionNameSuffix = ".d"
         }
     }
