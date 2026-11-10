@@ -3,13 +3,17 @@ package com.looker.droidify.ui.appDetail
 import android.content.Context
 import android.graphics.drawable.Drawable
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView.ScaleType
 import androidx.recyclerview.widget.RecyclerView
+import coil3.SingletonImageLoader
 import coil3.asImage
 import coil3.dispose
 import coil3.load
+import coil3.request.Disposable
+import coil3.request.ImageRequest
 import coil3.request.placeholder
 import coil3.size.Scale
 import com.google.android.material.imageview.ShapeableImageView
@@ -44,6 +48,46 @@ class ScreenshotsAdapter(
         } else {
             Item.ScreenshotItem(repository, packageName, it)
         }
+    }
+
+    private var prefetchJobs: List<Disposable> = emptyList()
+    private var attachListener: View.OnAttachStateChangeListener? = null
+
+    // Download every screenshot in parallel while the list is on screen.
+    // Leaving the screen cancels them; finished ones stay cached, so returning resumes cheaply.
+    private fun startPrefetch(context: Context) {
+        cancelPrefetch()
+        val imageLoader = SingletonImageLoader.get(context)
+        prefetchJobs = items.filterIsInstance<Item.ScreenshotItem>().map { item ->
+            val request = ImageRequest.Builder(context)
+                .data(item.screenshot.url(item.repository, item.packageName))
+                .apply { authentication(item.repository.authentication) }
+                .build()
+            imageLoader.enqueue(request)
+        }
+    }
+
+    private fun cancelPrefetch() {
+        prefetchJobs.forEach { it.dispose() }
+        prefetchJobs = emptyList()
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        val listener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = startPrefetch(v.context)
+            override fun onViewDetachedFromWindow(v: View) = cancelPrefetch()
+        }
+        attachListener = listener
+        recyclerView.addOnAttachStateChangeListener(listener)
+        if (recyclerView.isAttachedToWindow) startPrefetch(recyclerView.context)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        attachListener?.let(recyclerView::removeOnAttachStateChangeListener)
+        attachListener = null
+        cancelPrefetch()
+        super.onDetachedFromRecyclerView(recyclerView)
     }
 
     private class VideoViewHolder(
